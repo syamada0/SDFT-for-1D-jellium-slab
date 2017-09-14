@@ -1,0 +1,19 @@
+$input
+  width_z = 1000
+  Nz = 250
+  thickness_slab = 202
+  density_jellium = 0.01877624898
+  E_min = -1.0
+  E_max = 1.0
+  i_mode = 1
+  eps_residual = 0.00005
+  N_iter = 100000
+  N_so = 100
+  N_ch = 100
+  alpha = 0.0003
+  V0 = 0.355
+/
+
+# the thickness of the jellium slab = 200 a.u.
+# rs = 2.334 --> density_jellium = 0.01877624898
+# E_Fermi = 9.2 eV = 0.3380911082 Hartree
