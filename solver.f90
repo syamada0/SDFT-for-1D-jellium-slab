@@ -105,6 +105,7 @@ contains
     return
   end subroutine density_integral
 
+! cf. Ref [3]
   subroutine chebyshev_coefficient(N_ch,mu,delta_E,E_ave,C)
     implicit none
     integer   ,intent(in)  :: N_ch
@@ -139,7 +140,7 @@ contains
     wrk = mu - x * delta_E - E_ave
     theta = 0d0
     if(wrk > 0d0) then
-      theta = wrk / pi
+      theta = wrk / pi ! cf. Ref [4]
     end if
     theta_sqrt = sqrt( theta )
   end function theta_sqrt
@@ -160,7 +161,6 @@ contains
   end subroutine electron_density_stochastic
 
 ! conjugate gradient method : (d^2/dz^2) V_H(z) = - 4*pi* rho(z)
-! cf. http://www.toffee.jp/streaming/gpgpu/advanced_gpgpu/2015/advanced_gpgpu10.pdf
   subroutine Hartree_potential(Nz,dz,rho,V_H)
     implicit none
     integer,intent(in)    :: Nz

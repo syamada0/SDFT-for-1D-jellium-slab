@@ -17,6 +17,13 @@
 !   Nz = 1000, width_z = 1000 --> dz = 0.5
 !   thickness_slab must be [integer + dz] such as "80.5" or "100.5".
 !
+! ### Reference ###
+! 
+! [1] R. Baer, D. Neuhauser, and E. Rabani, PRL 111, 106402 (2013).
+! [2] R. Baer and M. Head-Gordon, J. Chem. Phys. 107, 10003 (1997).
+! [3] http://www.aip.de/groups/soe/local/numres/bookfpdf/f5-8.pdf
+! [4] A. G. Eguiluz, D. A. Campbell, A. A. Maradudin, and R. F. Wallis, PRB 30, 5449 (1984).
+!
 program main
   use solver
   implicit none
@@ -26,19 +33,20 @@ program main
   namelist/input/width_z &          ! system size
                 ,thickness_slab &   ! thickness of the jellium slab
                 ,density_jellium &  ! jellium density
-                ,E_min,E_max &      ! eigenenergies interval of the Hamiltonian
+                ,E_min,E_max &      ! eigenenergy interval of the Hamiltonian (cf. Ref [2])
                 ,Nz &               ! # of the grid points
                 ,N_so &             ! # of the stochastic orbitals
                 ,N_ch &             ! length of the Chebyshev expansion
-                ,i_mode &           ! initial potential mode (=0 --> model potential, =1 --> read file)
+                ,i_mode &           ! =0 --> model potential, =1 --> read file
                 ,N_iter &           ! # of SCF iteration
                 ,alpha &            ! potential mixing parameter
                 ,V0 &               ! parameter for the initial model potential
                 ,eps_residual       ! convergence threshold
 
-  integer :: i,iz,iter
+  integer :: i,iz,iter,seedsize
   real(8) :: dz,e_fermi,delta_E,E_ave,r,residual
-  real(8)   ,allocatable :: V(:),V_ext(:),rho(:),rho_jellium(:) &
+  integer   ,allocatable :: seed(:)
+  real(8)   ,allocatable :: V(:),rho(:),rho_jellium(:) &
                            ,V_H(:),V_xc(:),rand(:,:) 
   complex(8),allocatable :: xi(:,:),chi(:,:)
 
@@ -54,7 +62,7 @@ program main
   E_ave = 0.5d0 * ( E_max + E_min )
   delta_E = 0.5d0 * ( E_max - E_min )
 
-  allocate(V(-Nz:Nz),V_ext(-Nz:Nz),V_H(-Nz:Nz),V_xc(-Nz:Nz) &
+  allocate(V(-Nz:Nz),V_H(-Nz:Nz),V_xc(-Nz:Nz) &
           ,rho(-Nz:Nz),rho_jellium(-Nz:Nz) &
           ,xi(-Nz:Nz,N_so),chi(-Nz:Nz,N_so))
 
@@ -67,7 +75,34 @@ program main
     end if
   end do
 
+! set seed & initial potential
+  call random_seed(size=seedsize)
+  allocate(seed(seedsize))
+  if(i_mode==0) then
+    do i=1,seedsize
+      call system_clock(count=seed(i))
+    end do
+    do iz=-Nz,Nz
+      r = abs(dble(iz) * dz)
+      r = r - thickness_slab/2d0
+      V(iz) = jellium_surface_potential(r,density_jellium,V0)
+    end do
+    write(*,*) "set new seed & initial V"
+  else
+    rewind(555)
+    read(555,*) iz, i
+    if(iz==Nz .and. i==seedsize) then
+      read(555,*) V(-Nz:Nz)
+      read(555,*) seed(1:seedsize)
+      write(*,*) "read seed & V"
+    else
+      write(*,*) "error : reading fort.555"
+      stop
+    end if
+  end if
+
 ! stochastic orbitals (SO)
+  call random_seed(put=seed(:))
   allocate(rand(-Nz:Nz,N_so))
   call random_number(rand)
   do i=1,N_so
@@ -78,25 +113,8 @@ program main
   deallocate(rand)
 
 ! test  
-  call test(N_ch)
+  call test(N_ch,delta_E,E_ave)
   call test2(Nz,N_so,dz,chi)
-
-! initial potential
-  if(i_mode==0) then
-    do iz=-Nz,Nz
-      r = abs(dble(iz) * dz)
-      r = r - thickness_slab/2d0
-      V(iz) = jellium_surface_potential(r,density_jellium,V0)
-    end do
-    write(*,*) "set initial V"
-  else
-    rewind(555)
-    read(555,*) iz
-    if(iz==Nz) then
-      read(555,*) V(-Nz:Nz)
-      write(*,*) "read V"
-    end if
-  end if
 
   write(*,*) "start Ground State Calculation"
 
@@ -138,11 +156,12 @@ program main
   end do
 
   rewind(555)
-  write(555,*) Nz
+  write(555,*) Nz, seedsize
   write(555,*) V(-Nz:Nz)
+  write(555,*) seed(1:seedsize)
 
   write(*,*) "end"
-  deallocate(V,V_ext,V_H,V_xc,rho,rho_jellium,xi,chi)
+  deallocate(V,V_H,V_xc,rho,rho_jellium,xi,chi,seed)
 
 ! test
 !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -188,9 +207,10 @@ contains
     func = sin(x/30d0) + cos(x/700d0)
   end function func
 
-  subroutine test(N_ch) ! for Chebyshev expansion
+  subroutine test(N_ch,delta_E,E_ave) ! for Chebyshev expansion
     implicit none
     integer,intent(in) :: N_ch
+    real(8),intent(in) :: delta_E,E_ave
     !
     integer :: Nz,i
     real(8) :: dz,rz
@@ -201,7 +221,7 @@ contains
 
     allocate(T_ch(-Nz:Nz,0:N_ch-1),C(0:N_ch-1),f(-Nz:Nz))
     call test_chebyshev_polynomial(Nz,dz,N_ch,T_ch)
-    call chebyshev_coefficient(N_ch,0d0,1d0,0d0,C)
+    call chebyshev_coefficient(N_ch,0d0,delta_E,E_ave,C)
 
     f = 0d0
     do i=0,N_ch-1
@@ -210,7 +230,7 @@ contains
 
     do i=-Nz,Nz
       rz = dble(i) * dz
-      write(111,*) rz,theta_sqrt(rz,0d0,1d0,0d0),f(i)
+      write(111,*) rz,theta_sqrt(rz,0d0,delta_E,E_ave),f(i)
     end do
 
     deallocate(T_ch,C,f)
